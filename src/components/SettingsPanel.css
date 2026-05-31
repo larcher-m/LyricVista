@@ -1,0 +1,133 @@
+.settings-panel {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  color: #e0e0e0;
+  -webkit-app-region: no-drag;
+}
+
+.settings-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+}
+
+.setting-group {
+  margin-bottom: 14px;
+}
+
+.setting-group label {
+  display: block;
+  font-size: 12px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.setting-row input[type="range"] {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+}
+
+.setting-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffdd57;
+  cursor: pointer;
+}
+
+.setting-row input[type="color"] {
+  width: 32px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  padding: 2px;
+}
+
+.setting-val {
+  font-size: 12px;
+  opacity: 0.6;
+  min-width: 48px;
+  text-align: right;
+}
+
+.setting-group select {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e0e0e0;
+  font-size: 13px;
+  outline: none;
+}
+
+.setting-group select:focus {
+  border-color: #ffdd57;
+}
+
+/* ── Preview ── */
+.setting-preview {
+  margin: 16px 0;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  text-align: center;
+  line-height: 2;
+}
+
+/* ── Actions ── */
+.setting-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.btn-cancel,
+.btn-save {
+  padding: 7px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+}
+
+.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.btn-save {
+  background: #ffdd57;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.btn-save:hover {
+  background: #ffed8a;
+}

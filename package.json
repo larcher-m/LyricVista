@@ -1,0 +1,56 @@
+{
+  "name": "lyricvista",
+  "version": "1.0.0",
+  "description": "Desktop lyrics overlay for Windows — auto-detects any music app playback",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\" \"npm run dev:server\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .",
+    "dev:server": "tsx server/index.ts",
+    "build": "npm run build:renderer && npm run build:electron && npm run build:server",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:server": "tsc -p tsconfig.server.json",
+    "package": "npm run build && electron-builder --win portable",
+    "dist": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.lyricvista.app",
+    "productName": "LyricVista",
+    "directories": { "output": "release" },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "dist-server/**/*",
+      "resources/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [{ "from": "resources/", "to": "resources/" }],
+    "win": { "target": ["portable", "nsis"], "icon": "resources/icon.png" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.0"
+  }
+}
