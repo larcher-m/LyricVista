@@ -22,6 +22,7 @@ db.exec(`
     artist TEXT NOT NULL,
     lyrics TEXT NOT NULL,
     synced_lyrics TEXT,
+    translated_lyrics TEXT,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     UNIQUE(title, artist)
   );
@@ -31,6 +32,21 @@ db.exec(`
     value TEXT NOT NULL
   );
 `);
+
+// Add translated_lyrics column for existing DBs
+try { db.exec(`ALTER TABLE lyrics_cache ADD COLUMN translated_lyrics TEXT`); } catch {}
+
+// ── Cache expiry: delete entries older than 30 days ──
+function cleanExpiredCache() {
+  const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
+  const deleted = db.prepare(`DELETE FROM lyrics_cache WHERE created_at < ?`).run(thirtyDaysAgo);
+  if (deleted.changes > 0) {
+    console.log(`Cleaned ${deleted.changes} expired cache entries`);
+  }
+}
+cleanExpiredCache();
+// Periodic cleanup every 6 hours
+setInterval(cleanExpiredCache, 6 * 3600 * 1000);
 
 // ── Prepare statements ──
 const insertLyrics = db.prepare(`

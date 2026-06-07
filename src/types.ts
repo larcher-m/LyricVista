@@ -1,10 +1,8 @@
-// ── LRC Lyrics Line ──
 export interface LyricLine {
-  time: number;   // seconds
+  time: number;
   text: string;
 }
 
-// ── SMTC Data from main process ──
 export interface SMTCData {
   title: string;
   artist: string;
@@ -13,16 +11,19 @@ export interface SMTCData {
   timelineStart: number;
   timelineEnd: number;
   source: string;
+  method: string;
+  positionSource?: string;
+  kugouPositionMs?: number;
+  kugouPositionUpdatedAt?: string;
 }
 
-// ── Lyrics API Response ──
 export interface LyricsResponse {
   lyrics: string;
   syncedLyrics: string | null;
   cached: boolean;
+  source?: string;
 }
 
-// ── App Settings ──
 export interface AppSettings {
   fontSize: number;
   fontFamily: string;
@@ -37,20 +38,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fontFamily: "Microsoft YaHei, sans-serif",
   textColor: "#ffffff",
   highlightColor: "#ffdd57",
-  bgOpacity: 0.25,
+  bgOpacity: 0.7,
   bgBlur: 8,
 };
 
-// ── Electron API exposed via preload ──
 declare global {
   interface Window {
     electronAPI: {
       getSongStatus: () => Promise<SMTCData | null>;
-      toggleWindow: () => void;
-      setWindowOpacity: (opacity: number) => void;
+      onSongStatus: (cb: (data: SMTCData | null) => void) => () => void;
       minimizeToTray: () => void;
-      onSMTCUpdate: (cb: (data: SMTCData | null) => void) => () => void;
-      getWindowBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
+      quitApp: () => void;
     };
   }
 }

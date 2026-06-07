@@ -1,5 +1,5 @@
 import { useRef, useMemo, useEffect, useState, useCallback } from "react";
-import { SMTCData, LyricLine, AppSettings } from "../types";
+import { SMTCData, LyricLine } from "../types";
 import "./LyricsWindow.css";
 
 interface Props {
@@ -9,95 +9,228 @@ interface Props {
   loading: boolean;
   error: string;
   isPlaying: boolean;
-  settings: AppSettings;
-  playbackStart: number;
 }
 
+const LEAD_TIME = 0.5;
+const KUGOU_LEAD_TIME = 1.4;
+const TICK_MS = 100;
+const FLASH_MS = 600;
+
 export default function LyricsWindow({
-  media, lyricLines, plainLyrics, loading, error, isPlaying, settings,
+  media, lyricLines, plainLyrics, loading, error, isPlaying,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const plainRef = useRef<HTMLDivElement>(null);
-  const [tick, setTick] = useState(0);
   const [syncFlash, setSyncFlash] = useState(false);
-  const startTimeRef = useRef(Date.now());
-  const prevKeyRef = useRef("");
-  
+  const [smoothTime, setSmoothTime] = useState(0);
 
+  const smtcBaseRef = useRef({ position: 0, timestamp: Date.now() });
+  const fallbackElapsedMsRef = useRef(0);
+  const fallbackStartedAtRef = useRef(Date.now());
+  const detectedPlayingAtRef = useRef(0);
+  const wasPlayingRef = useRef(false);
+  const prevMediaKeyRef = useRef("");
+  const prevLyricsKeyRef = useRef("");
+  const prevTimelineBaseRef = useRef({
+    mediaKey: "",
+    position: Number.NaN,
+    isPlaying: false,
+  });
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const mediaKey = media ? `${media.title}|${media.artist}` : "";
+  const lyricsKey = lyricLines.length > 0 ? `${mediaKey}|${lyricLines.length}` : "";
   const hasTimeline = !!(media && (media.position > 0 || media.timelineEnd > 0));
+  const leadTime = media?.positionSource === "kugou_ini" ? KUGOU_LEAD_TIME : LEAD_TIME;
 
-  // Reset timer on new song
-  const lyricKey = lyricLines.length > 0 ? lyricLines[0].text : "";
+  const flash = useCallback(() => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    setSyncFlash(true);
+    flashTimerRef.current = setTimeout(() => setSyncFlash(false), FLASH_MS);
+  }, []);
+
+  const currentFallbackSeconds = useCallback(() => {
+    const elapsed = fallbackElapsedMsRef.current +
+      (isPlaying ? Date.now() - fallbackStartedAtRef.current : 0);
+    return Math.max(0, elapsed / 1000);
+  }, [isPlaying]);
+
+  const currentTimelineSeconds = useCallback(() => {
+    const base = smtcBaseRef.current;
+    const elapsed = isPlaying ? (Date.now() - base.timestamp) / 1000 : 0;
+    const value = base.position + elapsed;
+    const end = media?.timelineEnd ?? 0;
+    return end > 0 ? Math.min(value, end) : value;
+  }, [isPlaying, media?.timelineEnd]);
+
+  const readCurrentSeconds = useCallback(() => {
+    return hasTimeline ? currentTimelineSeconds() : currentFallbackSeconds();
+  }, [currentFallbackSeconds, currentTimelineSeconds, hasTimeline]);
+
   useEffect(() => {
-    if (lyricKey && lyricKey !== prevKeyRef.current) {
-      prevKeyRef.current = lyricKey;
-      startTimeRef.current = Date.now();
+    if (!mediaKey) return;
+    if (mediaKey !== prevMediaKeyRef.current) {
+      const now = Date.now();
+      prevMediaKeyRef.current = mediaKey;
+      detectedPlayingAtRef.current = isPlaying ? now : 0;
+      fallbackElapsedMsRef.current = Math.max(0, (media?.position ?? 0) * 1000);
+      fallbackStartedAtRef.current = now;
+      smtcBaseRef.current = { position: media?.position ?? 0, timestamp: now };
+      setSmoothTime(media?.position ?? 0);
     }
-  }, [lyricKey]);
+  }, [mediaKey, isPlaying, media?.position]);
 
-
-  // Tick
   useEffect(() => {
-    if (hasTimeline || lyricLines.length === 0 || !isPlaying) return;
-    const t = setInterval(() => setTick((n) => n + 1), 150);
-    return () => clearInterval(t);
-  }, [hasTimeline, lyricLines.length, isPlaying]);
+    if (!mediaKey) {
+      detectedPlayingAtRef.current = 0;
+      return;
+    }
+    if (isPlaying && !detectedPlayingAtRef.current) {
+      detectedPlayingAtRef.current = Date.now();
+    }
+  }, [isPlaying, mediaKey]);
 
-  // Current index
+  useEffect(() => {
+    if (!lyricsKey || lyricsKey === prevLyricsKeyRef.current) return;
+    const now = Date.now();
+    prevLyricsKeyRef.current = lyricsKey;
+
+    if (hasTimeline) {
+      smtcBaseRef.current = { position: media?.position ?? 0, timestamp: now };
+      setSmoothTime(media?.position ?? 0);
+      return;
+    }
+
+    fallbackElapsedMsRef.current = isPlaying && detectedPlayingAtRef.current
+      ? now - detectedPlayingAtRef.current
+      : 0;
+    fallbackStartedAtRef.current = now;
+    setSmoothTime(fallbackElapsedMsRef.current / 1000);
+  }, [lyricsKey, hasTimeline, isPlaying, media?.position]);
+
+  useEffect(() => {
+    if (!media || !hasTimeline) return;
+    const now = Date.now();
+    const position = Math.max(0, media.position);
+    const previous = prevTimelineBaseRef.current;
+    const songChanged = previous.mediaKey !== mediaKey;
+    const positionChanged = Number.isNaN(previous.position) || Math.abs(position - previous.position) >= 0.2;
+    const playStateChanged = previous.isPlaying !== isPlaying;
+
+    if (songChanged || positionChanged || playStateChanged || !isPlaying) {
+      smtcBaseRef.current = { position, timestamp: now };
+      if (!isPlaying) setSmoothTime(position);
+    }
+
+    prevTimelineBaseRef.current = { mediaKey, position, isPlaying };
+  }, [mediaKey, media?.position, hasTimeline, isPlaying]);
+
+  useEffect(() => {
+    if (hasTimeline) {
+      wasPlayingRef.current = isPlaying;
+      return;
+    }
+
+    const now = Date.now();
+    if (isPlaying && !wasPlayingRef.current) {
+      fallbackStartedAtRef.current = now;
+    }
+    if (!isPlaying && wasPlayingRef.current) {
+      fallbackElapsedMsRef.current += now - fallbackStartedAtRef.current;
+      setSmoothTime(fallbackElapsedMsRef.current / 1000);
+    }
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying, hasTimeline]);
+
+  useEffect(() => {
+    if (lyricLines.length === 0) {
+      setSmoothTime(0);
+      return;
+    }
+
+    setSmoothTime(readCurrentSeconds());
+    if (!isPlaying) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      setSmoothTime(readCurrentSeconds());
+      const drift = Date.now() % TICK_MS;
+      timer = setTimeout(tick, Math.max(30, TICK_MS - drift));
+    };
+    timer = setTimeout(tick, TICK_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isPlaying, lyricLines.length, readCurrentSeconds]);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
+
   const currentIndex = useMemo(() => {
-    if (lyricLines.length === 0) return -1;
-    if (hasTimeline && media) {
-      for (let i = lyricLines.length - 1; i >= 0; i--) {
-        if (media.position >= lyricLines[i].time) return i;
-      }
-      return 0;
-    }
-    const elapsed = (Date.now() - startTimeRef.current) / 1000;
+    if (lyricLines.length === 0 || smoothTime <= 0) return -1;
+    const adjusted = smoothTime + leadTime;
     for (let i = lyricLines.length - 1; i >= 0; i--) {
-      if (elapsed >= lyricLines[i].time) return i;
+      if (adjusted >= lyricLines[i].time) return i;
     }
     return 0;
-  }, [tick, lyricLines, hasTimeline, media]);
+  }, [smoothTime, lyricLines, leadTime]);
 
-  // Scroll
   useEffect(() => {
     if (currentIndex < 0 || !listRef.current) return;
-    const kids = listRef.current.children;
-    if (currentIndex + 1 < kids.length) {
-      (kids[currentIndex + 1] as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+    const children = listRef.current.children;
+    if (currentIndex + 1 < children.length) {
+      (children[currentIndex + 1] as HTMLElement).scrollIntoView({ behavior: "auto", block: "center" });
     }
   }, [currentIndex]);
 
-  // Click line to sync
   const syncToLine = useCallback((idx: number) => {
     if (idx < 0 || idx >= lyricLines.length) return;
-    startTimeRef.current = Date.now() - lyricLines[idx].time * 1000;
-    setSyncFlash(true);
-    setTimeout(() => setSyncFlash(false), 600);
-  }, [lyricLines]);
+    const lineTime = lyricLines[idx].time;
+    const now = Date.now();
 
-  // Manual re-sync button (reset from 0)
+    if (hasTimeline) {
+      smtcBaseRef.current = { position: lineTime, timestamp: now };
+    } else {
+      fallbackElapsedMsRef.current = lineTime * 1000;
+      fallbackStartedAtRef.current = now;
+    }
+    setSmoothTime(lineTime);
+    flash();
+  }, [flash, hasTimeline, lyricLines]);
+
   const handleResync = useCallback(() => {
-    if (lyricLines.length === 0) return;
-    startTimeRef.current = Date.now();
-    setSyncFlash(true);
-    setTimeout(() => setSyncFlash(false), 600);
-  }, [lyricLines.length]);
+    const now = Date.now();
+    fallbackElapsedMsRef.current = 0;
+    fallbackStartedAtRef.current = now;
+    smtcBaseRef.current = { position: 0, timestamp: now };
+    setSmoothTime(0);
+    flash();
+  }, [flash]);
 
-  // Plain lyrics scroll
   useEffect(() => {
     if (!plainRef.current || lyricLines.length > 0 || !isPlaying) return;
-    let id = 0, last = performance.now();
-    const f = () => {
-      const n = performance.now();
-      if (plainRef.current) plainRef.current.scrollTop += 12 * (n - last) / 1000;
-      last = n;
-      if (plainRef.current && plainRef.current.scrollTop + plainRef.current.clientHeight >= plainRef.current.scrollHeight - 20) {
+    let id = 0;
+    let last = performance.now();
+    const scroll = () => {
+      const now = performance.now();
+      if (plainRef.current) {
+        plainRef.current.scrollTop += 12 * (now - last) / 1000;
+      }
+      last = now;
+      if (plainRef.current &&
+          plainRef.current.scrollTop + plainRef.current.clientHeight >=
+          plainRef.current.scrollHeight - 20) {
         plainRef.current.scrollTop = 0;
       }
-      id = requestAnimationFrame(f);
+      id = requestAnimationFrame(scroll);
     };
-    id = requestAnimationFrame(f);
+    id = requestAnimationFrame(scroll);
     return () => cancelAnimationFrame(id);
   }, [lyricLines.length, isPlaying]);
 
@@ -138,35 +271,30 @@ export default function LyricsWindow({
   }
 
   return (
-    <div
-      className="lyrics-window"
-      style={{
-        "--bg-opacity": settings.bgOpacity,
-        "--bg-blur": `${settings.bgBlur}px`,
-        "--text-color": settings.textColor,
-        "--highlight-color": settings.highlightColor,
-        "--font-size": `${settings.fontSize}px`,
-      } as React.CSSProperties}
-    >
+    <div className="lyrics-window">
       <div className="song-info">
         <span className="song-title">{media.title}</span>
         <span className="song-artist"> — {media.artist}</span>
         {media.source && <span className="song-source"> · {media.source.split(".").pop()}</span>}
         {!isPlaying && <span className="paused-badge">⏸</span>}
-        {syncFlash && <span className="paused-badge" style={{ color: "#5f5" }}>✓ 已同步</span>}
+        {syncFlash && <span className="paused-badge" style={{ color: "#5f5" }}>✓</span>}
         {!hasTimeline && isPlaying && lyricLines.length > 0 && (
-          <span className="paused-badge" style={{ color: "#88ccff", cursor: "pointer", WebkitAppRegion: "no-drag" }} onClick={handleResync}>
-            ⟳ 重新同步
+          <span
+            className="paused-badge"
+            style={{ color: "#88ccff", cursor: "pointer", WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            onClick={handleResync}
+          >
+            ⟳ 从头同步
           </span>
         )}
       </div>
 
       {lyricLines.length > 0 ? (
-        <div className="lyrics-scroll" ref={listRef} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" }}>
+        <div className="lyrics-scroll" ref={listRef} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
           <div className="lyric-pad" />
           {lyricLines.map((line, i) => (
             <div
-              key={i}
+              key={`${line.time}-${line.text}`}
               className={`lyric-line ${i === currentIndex ? "active" : ""} ${i < currentIndex ? "past" : ""}`}
               onClick={() => syncToLine(i)}
             >
@@ -179,7 +307,7 @@ export default function LyricsWindow({
         <div className="lyrics-plain" ref={plainRef}>
           <div className="lyric-pad" />
           {plainLyrics.split("\n").map((line, i) => (
-            <p key={i}>{line || "\u00A0"}</p>
+            <p key={`${i}-${line}`}>{line || " "}</p>
           ))}
           <div className="lyric-pad" />
         </div>
